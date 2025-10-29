@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Voice Assistant Widget</title>
+  <style>
+    :root{
+      --bg:#0b0f19;
+      --panel:#0f1526;
+      --accent:#6ee7ff;
+      --accent-2:#9b8cff;
+      --text:#e6eefc;
+      --muted:#9aa3b2;
+      --danger:#ff4d67;
+      --ok:#36d399;
+      --shadow: 0 10px 30px rgba(0,0,0,.35);
+      --radius: 16px;
+    }
+    html,body{height:100%;}
+    body{
+      margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
+      background: #0a0c12; color:var(--text);
+    }
+
+    /* Floating entry button */
+    .va-launcher{
+      position: fixed; right: 20px; bottom: 20px; z-index: 9999;
+      width: 64px; height: 64px; border-radius: 999px; border:none; cursor:pointer;
+      background: radial-gradient(120% 120% at 80% 20%, var(--accent), var(--accent-2));
+      color:#001018; display:grid; place-items:center; box-shadow: var(--shadow);
+      transition: transform .18s ease, box-shadow .2s ease;
+      overflow: visible;
+    }
+    .va-launcher:focus{ outline: 2px solid rgba(255,255,255,.35); outline-offset: 3px; }
+    .va-launcher:hover{ transform: translateY(-2px) scale(1.02); box-shadow: 0 14px 40px rgba(0,0,0,.45); }
+
+    /* Glow pulse */
+    .va-launcher::after{
+      content:""; position:absolute; inset:-6px; border-radius:inherit;
+      background: conic-gradient(from 0deg, rgba(110,231,255,.4), rgba(155,140,255,.35), transparent 70%);
+      filter: blur(14px); z-index:-1; animation: spin 5s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg);} }
+
+    /* Panel wrapper */
+    .va-wrapper{ position:fixed; right: 20px; bottom: 96px; z-index: 9999; }
+
+    .va-panel{
+      width: 360px; max-width: calc(100vw - 40px);
+      height: 520px; max-height: calc(100vh - 140px);
+      background: linear-gradient(180deg, var(--panel), #0b1020 60%, #0a0f22);
+      border: 1px solid rgba(255,255,255,.06);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden; display:flex; flex-direction: column;
+      transform-origin: bottom right; transform: scale(.92) translateY(8px);
+      opacity:0; pointer-events:none; transition: transform .22s cubic-bezier(.2,.9,.2,1), opacity .22s ease;
+    }
+    .va-panel.open{ opacity:1; pointer-events:auto; transform: scale(1) translateY(0); }
+
+    .va-header{
+      display:flex; align-items:center; justify-content: space-between; gap:8px;
+      padding: 12px 14px; background: rgba(255,255,255,.02);
+      border-bottom: 1px solid rgba(255,255,255,.06);
+    }
+    .va-title{ display:flex; align-items:center; gap:10px; font-weight:600; }
+    .va-dot{ width:10px; height:10px; border-radius:999px; background: var(--danger); box-shadow: 0 0 0 0 rgba(255,77,103,.7);
+      animation: ping 2s infinite; }
+    @keyframes ping { 0%{ box-shadow:0 0 0 0 rgba(255,77,103,.6);} 70%{ box-shadow:0 0 0 12px rgba(255,77,103,0);} 100%{ box-shadow:0 0 0 0 rgba(255,77,103,0);} }
+
+    .va-actions{ display:flex; gap:8px; }
+    .icon-btn{ width:36px; height:36px; display:grid; place-items:center; border-radius:10px; border:1px solid rgba(255,255,255,.1);
+      background: rgba(255,255,255,.03); color:var(--text); cursor:pointer; transition: background .2s ease, transform .15s ease; }
+    .icon-btn:hover{ background: rgba(255,255,255,.06); }
+    .icon-btn:active{ transform: scale(.96); }
+
+    .va-body{ flex: 1; display:flex; flex-direction: column; gap:12px; padding: 16px; overflow: hidden; }
+
+    /* Animated equalizer */
+    .eq{ display:flex; gap:5px; align-items:flex-end; justify-content:center; height: 80px; margin-top: 12px; }
+    .eq span{ width:6px; border-radius: 4px; background: linear-gradient(to top, rgba(110,231,255,.15), rgba(110,231,255,.9));
+      height: 20px; animation: bounce 1s ease-in-out infinite; box-shadow: 0 6px 18px rgba(110,231,255,.18);
+    }
+    .eq span:nth-child(2){ animation-delay: .1s; }
+    .eq span:nth-child(3){ animation-delay: .2s; }
+    .eq span:nth-child(4){ animation-delay: .3s; }
+    .eq span:nth-child(5){ animation-delay: .4s; }
+    @keyframes bounce { 0%,100%{ height:18px } 50%{ height:70px } }
+
+    /* Wave ring around mic while recording */
+    .mic-wrap{ position:relative; width: 104px; height:104px; margin: 6px auto 0; }
+    .ring{ position:absolute; inset:0; border-radius:999px; border:2px solid rgba(110,231,255,.45); opacity:.85;
+      animation: ring 1.8s ease-out infinite; }
+    .ring.r2{ inset: -8px; animation-delay: .25s; opacity:.35; }
+    .ring.r3{ inset: -16px; animation-delay: .5s; opacity:.2; }
+    @keyframes ring { from{ transform: scale(.75); opacity:.7 } to{ transform: scale(1.15); opacity:0 } }
+
+    .mic-btn{ position:absolute; inset: 14px; border-radius:999px; display:grid; place-items:center; 
+      background: radial-gradient(120% 120% at 75% 25%, #0ef, #6b66ff 70%);
+      border:none; width: 76px; height: 76px; color: #001018; cursor:pointer; box-shadow: var(--shadow);
+      transition: transform .15s ease; }
+    .mic-btn:active{ transform: scale(.96); }
+
+    .va-status{ text-align:center; font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+    .va-log{ flex:1; background: rgba(255,255,255,.02); border: 1px solid rgba(255,255,255,.06);
+      border-radius: 12px; padding: 10px; overflow: auto; font-size: 13px; line-height: 1.4; }
+    .va-log .msg{ padding:8px 10px; border-radius:10px; margin:6px 0; max-width: 85%; }
+    .va-log .user{ background: rgba(110,231,255,.12); border:1px solid rgba(110,231,255,.25); margin-left:auto; }
+    .va-log .bot{ background: rgba(155,140,255,.12); border:1px solid rgba(155,140,255,.25); }
+
+    .va-footer{ display:flex; align-items:center; gap:8px; padding: 10px 14px; border-top:1px solid rgba(255,255,255,.06); background: rgba(255,255,255,.02); }
+    .va-input{ flex:1; background: rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.12); color:var(--text);
+      border-radius: 12px; padding: 10px 12px; font-size: 14px; }
+    .va-send{ background: linear-gradient(120deg, var(--accent), var(--accent-2)); color:#001018; border:none; border-radius: 12px; padding: 10px 14px; cursor:pointer; font-weight:600; }
+
+    /* Hidden utility */
+    .hidden{ display:none !important; }
+
+    /* Reduced motion preference */
+    @media (prefers-reduced-motion: reduce){
+      .va-launcher::after, .ring, .eq span{ animation: none !important; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Floating Voice Assistant Widget -->
+  <button class="va-launcher" id="vaLauncher" aria-label="Open voice assistant">
+    <!-- Mic icon -->
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M12 14a4 4 0 0 0 4-4V6a4 4 0 1 0-8 0v4a4 4 0 0 0 4 4Zm6-4a6 6 0 0 1-12 0M12 20v-2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  </button>
+
+  <div class="va-wrapper" aria-live="polite" aria-atomic="false">
+    <section class="va-panel" id="vaPanel" role="dialog" aria-modal="false" aria-labelledby="vaTitle">
+      <header class="va-header">
+        <div class="va-title"><span class="va-dot" id="connDot" title="Disconnected"></span><span id="vaTitle">Assistant</span></div>
+        <div class="va-actions">
+          <button class="icon-btn" id="minBtn" title="Minimize" aria-label="Minimize">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M5 12h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          </button>
+          <button class="icon-btn" id="closeBtn" title="Close" aria-label="Close">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <main class="va-body">
+        <!-- Animated mic with rings + equalizer -->
+        <div class="mic-wrap">
+          <span class="ring r1 hidden" id="ring1"></span>
+          <span class="ring r2 hidden" id="ring2"></span>
+          <span class="ring r3 hidden" id="ring3"></span>
+          <button class="mic-btn" id="micBtn" aria-label="Start talking">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M12 14a4 4 0 0 0 4-4V6a4 4 0 1 0-8 0v4a4 4 0 0 0 4 4Zm6-4a6 6 0 0 1-12 0M12 20v-2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+        </div>
+        <div class="eq hidden" id="eq">
+          <span></span><span></span><span></span><span></span><span></span>
+        </div>
+        <div class="va-status" id="status">Click the mic to start.</div>
+
+        <div class="va-log" id="log" role="log" aria-live="polite"></div>
+      </main>
+
+      <footer class="va-footer">
+        <input class="va-input" id="textInput" type="text" placeholder="Type a message…" autocomplete="off" />
+        <button class="va-send" id="sendBtn">Send</button>
+      </footer>
+    </section>
+  </div>
+
+  <script>
+    /*
+      Integration guide:
+      1) Replace the OFFER/ICE endpoints with your n8n workflow webhooks that forward to Sarvam AI Realtime.
+      2) The client sends an SDP offer and expects an SDP answer { type:"answer", sdp:"..." }.
+      3) Optionally, expose a POST for ICE candidates if your SFU requires trickle ICE.
+      4) Do NOT ship API keys to the browser. Authenticate the webhook on your server.
+    */
+
+    const ENDPOINT_OFFER = "/api/webrtc/offer"; // POST {sdp, type}
+    const ENDPOINT_ICE   = "/api/webrtc/ice";   // POST {candidate}
+
+    const launcher = document.getElementById('vaLauncher');
+    const panel = document.getElementById('vaPanel');
+    const minBtn = document.getElementById('minBtn');
+    const closeBtn = document.getElementById('closeBtn');
+    const micBtn = document.getElementById('micBtn');
+    const statusEl = document.getElementById('status');
+    const logEl = document.getElementById('log');
+    const eq = document.getElementById('eq');
+    const connDot = document.getElementById('connDot');
+    const textInput = document.getElementById('textInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const ring1 = document.getElementById('ring1');
+    const ring2 = document.getElementById('ring2');
+    const ring3 = document.getElementById('ring3');
+
+    let pc = null; // RTCPeerConnection
+    let micStream = null; // MediaStream from getUserMedia
+    let remoteAudio = null; // HTMLAudioElement for remote audio
+    let isOpen = false;
+    let isRecording = false;
+
+    function openPanel(){
+      if(isOpen) return; isOpen = true; panel.classList.add('open'); launcher.setAttribute('aria-expanded','true');
+    }
+    function closePanel(){
+      isOpen = false; panel.classList.remove('open'); launcher.setAttribute('aria-expanded','false');
+    }
+
+    launcher.addEventListener('click', openPanel);
+    minBtn.addEventListener('click', closePanel);
+    closeBtn.addEventListener('click', closePanel);
+
+    function setStatus(text){ statusEl.textContent = text; }
+    function setConn(state){
+      const map = { disconnected: '#ff4d67', connecting: '#facc15', connected: '#36d399' };
+      connDot.style.background = map[state] || '#ff4d67';
+      connDot.title = state.charAt(0).toUpperCase()+state.slice(1);
+    }
+    function showRings(show){ [ring1,ring2,ring3].forEach(el=> el.classList.toggle('hidden', !show)); }
+
+    function appendMsg(text, who='bot'){
+      const p = document.createElement('div'); p.className = `msg ${who}`; p.textContent = text; logEl.appendChild(p); logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    async function ensurePC(){
+      if(pc) return pc;
+      pc = new RTCPeerConnection({
+        iceServers: [
+          { urls: ["stun:stun.l.google.com:19302", "stun:global.stun.twilio.com:3478"] }
+        ]
+      });
+
+      pc.onicecandidate = async (e)=>{
+        if(e.candidate){
+          try{ await fetch(ENDPOINT_ICE, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(e.candidate) }); }catch(err){ console.debug('ICE post failed', err); }
+        }
+      };
+
+      pc.onconnectionstatechange = ()=>{
+        const s = pc.connectionState;
+        if(s === 'connected'){ setConn('connected'); setStatus('Connected. Speak when ready.'); }
+        else if(s === 'connecting'){ setConn('connecting'); setStatus('Connecting…'); }
+        else if(s === 'disconnected' || s === 'failed' || s === 'closed'){ setConn('disconnected'); setStatus('Disconnected.'); stopStreaming(); }
+      };
+
+      // Remote audio track
+      pc.ontrack = (event)=>{
+        if(!remoteAudio){ remoteAudio = new Audio(); remoteAudio.autoplay = true; remoteAudio.playsInline = true; }
+        remoteAudio.srcObject = event.streams[0];
+      };
+
+      return pc;
+    }
+
+    async function startStreaming(){
+      if(isRecording) { stopStreaming(); return; }
+      try{
+        setStatus('Requesting microphone…');
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        showRings(true); eq.classList.remove('hidden'); isRecording = true; micBtn.setAttribute('aria-label','Stop talking');
+
+        const pcLocal = await ensurePC();
+        micStream.getAudioTracks().forEach(t => pcLocal.addTrack(t, micStream));
+
+        setStatus('Creating offer…'); setConn('connecting');
+        const offer = await pcLocal.createOffer({ offerToReceiveAudio: true });
+        await pcLocal.setLocalDescription(offer);
+
+        const res = await fetch(ENDPOINT_OFFER, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ sdp: offer.sdp, type: offer.type }) });
+        if(!res.ok){ throw new Error('Offer rejected: ' + res.status); }
+        const answer = await res.json();
+        if(!answer || !answer.sdp){ throw new Error('Invalid answer'); }
+        await pcLocal.setRemoteDescription(new RTCSessionDescription(answer));
+        setStatus('Streaming active.');
+
+      }catch(err){
+        console.error(err); setStatus('Error: ' + err.message); setConn('disconnected'); stopStreaming();
+      }
+    }
+
+    function stopStreaming(){
+      isRecording = false; micBtn.setAttribute('aria-label','Start talking'); showRings(false); eq.classList.add('hidden');
+      if(micStream){ micStream.getTracks().forEach(t=>t.stop()); micStream = null; }
+      if(pc){ try{ pc.close(); }catch(_){} pc = null; }
+    }
+
+    micBtn.addEventListener('click', startStreaming);
+
+    // Text message fallback flow: send to n8n standard webhook
+    async function sendText(){
+      const text = textInput.value.trim(); if(!text) return; appendMsg(text, 'user'); textInput.value = '';
+      setStatus('Sending…');
+      try{
+        const res = await fetch('/api/assistant/text', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ query: text }) });
+        const data = await res.json();
+        appendMsg(data.reply || 'No reply', 'bot'); setStatus('Ready.');
+      }catch(err){ appendMsg('Failed: '+err.message, 'bot'); setStatus('Error sending.'); }
+    }
+    sendBtn.addEventListener('click', sendText);
+    textInput.addEventListener('keydown', (e)=>{ if(e.key === 'Enter'){ sendText(); } });
+
+    // Accessibility: close with Escape
+    document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && isOpen){ closePanel(); } });
+
+    // Optional: auto-open on first visit after short delay
+    // setTimeout(openPanel, 800);
+  </script>
+</body>
+</html>
